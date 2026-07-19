@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/categoryreview.tsx","./src/components/insightsdashboard.tsx","./src/components/fileuploader/fileuploader.tsx","./src/lib/analysis.ts","./src/lib/storage.ts","./src/pages/uploadpage.tsx","./src/parsers/commbankparser.ts","./src/parsers/detectformat.ts","./src/parsers/excelparser.ts","./src/parsers/pdfparser.ts","./src/types/index.ts"],"version":"5.9.3"}

@@ -1,11 +1,4 @@
 {
-<<<<<<< HEAD
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" }
-  ]
-=======
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
@@ -25,5 +18,4 @@
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
->>>>>>> 76cba7a (Updated  React TypeScript project setup)
 }

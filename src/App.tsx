@@ -1,16 +1,3 @@
-<<<<<<< HEAD
-import { UploadPage } from './pages/UploadPage'
-
-function App() {
-  return (
-    <div className="min-h-screen bg-gray-100">
-      <UploadPage />
-    </div>
-  )
-}
-
-export default App
-=======
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Tx = {
@@ -961,4 +948,3 @@ async function loadPDFJS() {
     document.head.appendChild(script);
   });
 }
->>>>>>> 76cba7a (Updated  React TypeScript project setup)
