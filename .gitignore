@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Logs
 logs
 *.log
@@ -22,3 +23,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+=======
+node_modules
+/dist
+.vite
+*.log
+>>>>>>> 76cba7a (Updated  React TypeScript project setup)

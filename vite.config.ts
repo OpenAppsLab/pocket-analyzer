@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -9,3 +10,11 @@ export default defineConfig({
     tailwindcss(),
   ],
 })
+=======
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+});
+>>>>>>> 76cba7a (Updated  React TypeScript project setup)
