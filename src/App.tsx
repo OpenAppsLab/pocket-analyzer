@@ -56,6 +56,7 @@ const MONTHS: Record<string, number> = {
 };
 
 const PAGE_SIZE = 50;
+const STORAGE_KEY = 'pocket-analyser-dashboard-v1';
 const MERCHANT_STOPWORDS = new Set([
   'pty', 'pty.', 'ltd', 'ltd.', 'lt', 'llc', 'inc', 'inc.', 'limited', 'co', 'corp', 'aus', 'au', 'australia', 'the', 'store', 'shop', 'group', 'holdings'
 ]);
@@ -429,6 +430,45 @@ export default function App() {
     window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   };
 
+  const saveSession = () => {
+    const snapshot = {
+      screen,
+      fileChips,
+      allTransactions: allTransactions.map((tx) => ({ ...tx, date: tx.date.toISOString() })),
+      ignoredTransactions: ignoredTransactions.map((tx) => ({ ...tx, date: tx.date.toISOString() })),
+      categoryOverrides,
+      loadedFiles,
+      txIdCounter,
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  };
+
+  const resetApp = () => {
+    setScreen('upload');
+    setFileChips([]);
+    setAllTransactions([]);
+    setIgnoredTransactions([]);
+    setFilteredTx([]);
+    setCategoryOverrides({});
+    setSortCol('date');
+    setSortDir('desc');
+    setTypeFilter('all');
+    setFilters({ query: '', category: '', source: '', dateFrom: '', dateTo: '' });
+    setCurrentPage(1);
+    setLoadedFiles([]);
+    setTxIdCounter(0);
+    setDragOver(false);
+    setSimilarModal(null);
+    setPendingSimilarIds([]);
+    window.localStorage.removeItem(STORAGE_KEY);
+    toast('All data cleared', 'info');
+  };
+
+  const refreshSummary = () => {
+    saveSession();
+    window.location.reload();
+  };
+
   const addFileChip = (name: string, status: 'pending' | 'ok' | 'err', label: string) => {
     const chip = { id: `chip-${name.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}`, name, status, label };
     setFileChips((prev) => [...prev, chip]);
@@ -505,6 +545,41 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as {
+        screen?: 'upload' | 'dashboard';
+        fileChips?: Array<{ id: string; name: string; status: 'pending' | 'ok' | 'err'; label: string }>;
+        allTransactions?: Array<Tx & { date: string }>;
+        ignoredTransactions?: Array<Tx & { date: string }>;
+        categoryOverrides?: Record<string, string>;
+        loadedFiles?: string[];
+        txIdCounter?: number;
+      };
+
+      if (parsed.allTransactions?.length) {
+        setScreen(parsed.screen || 'dashboard');
+        setFileChips(parsed.fileChips || []);
+        setAllTransactions(parsed.allTransactions.map((tx) => ({ ...tx, date: new Date(tx.date) })));
+        setIgnoredTransactions((parsed.ignoredTransactions || []).map((tx) => ({ ...tx, date: new Date(tx.date) })));
+        setCategoryOverrides(parsed.categoryOverrides || {});
+        setLoadedFiles(parsed.loadedFiles || []);
+        setTxIdCounter(parsed.txIdCounter || 0);
+        toast('Previous session restored', 'success');
+      }
+    } catch {
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (screen === 'dashboard' && allTransactions.length > 0) {
+      saveSession();
+    }
+  }, [screen, fileChips, allTransactions, ignoredTransactions, categoryOverrides, loadedFiles, txIdCounter]);
+
   const applyFilters = (page = 1) => {
     const search = filters.query.toLowerCase();
     const filtered = allTransactions.filter((tx) => {
@@ -542,6 +617,7 @@ export default function App() {
   }, [filteredTx, currentPage]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTx.length / PAGE_SIZE));
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   const stats = useMemo(() => {
     const totalSpend = allTransactions.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
@@ -572,25 +648,42 @@ export default function App() {
   }, [allTransactions]);
 
   const monthlyTotals = useMemo(() => {
-    const map = new Map<string, number>();
+    const grouped = new Map<number, number[]>();
+
     for (const tx of allTransactions) {
       if (tx.amount >= 0) continue;
-      const key = `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, '0')}`;
-      map.set(key, (map.get(key) || 0) + Math.abs(tx.amount));
+      const year = tx.date.getFullYear();
+      const monthIndex = tx.date.getMonth();
+      const series = grouped.get(year) || Array.from({ length: 12 }, () => 0);
+      series[monthIndex] += Math.abs(tx.amount);
+      grouped.set(year, series);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+    return [...grouped.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([year, months]) => ({ year, months }));
   }, [allTransactions]);
 
   const incomeExpenseMonthly = useMemo(() => {
-    const grouped = new Map<string, { income: number; expense: number }>();
+    const grouped = new Map<number, { income: number[]; expense: number[] }>();
+
     for (const tx of allTransactions) {
-      const key = `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, '0')}`;
-      const entry = grouped.get(key) || { income: 0, expense: 0 };
-      if (tx.amount > 0) entry.income += tx.amount;
-      else entry.expense += Math.abs(tx.amount);
-      grouped.set(key, entry);
+      const year = tx.date.getFullYear();
+      const monthIndex = tx.date.getMonth();
+      const entry = grouped.get(year) || {
+        income: Array.from({ length: 12 }, () => 0),
+        expense: Array.from({ length: 12 }, () => 0),
+      };
+
+      if (tx.amount > 0) entry.income[monthIndex] += tx.amount;
+      else entry.expense[monthIndex] += Math.abs(tx.amount);
+
+      grouped.set(year, entry);
     }
-    return [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+    return [...grouped.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([year, data]) => ({ year, income: data.income, expense: data.expense }));
   }, [allTransactions]);
 
   const insights = useMemo(() => {
@@ -682,30 +775,71 @@ export default function App() {
     </div>
   );
 
-  const renderMonthlyBars = () => (
-    <div className="monthly-bars">
-      {monthlyTotals.map(([key, value], idx) => (
-        <div className="month-col" key={key}>
-          <div className="month-bar" style={{ height: `${Math.max(6, (value / Math.max(...monthlyTotals.map(([,v]) => v), 1)) * 100)}%`, background: 'linear-gradient(180deg, #00d4aa, #6c63ff)' }} />
-          <div className="month-lbl">{key.slice(5)}</div>
-        </div>
-      ))}
-    </div>
-  );
+  const renderMonthlyBars = () => {
+    const yearColors = ['#ef4444', '#22c55e', '#6c63ff', '#f59e0b'];
+    const maxValue = Math.max(...monthlyTotals.flatMap((entry) => entry.months), 1);
 
-  const renderIncomeExpense = () => (
-    <div className="ie-bars">
-      {incomeExpenseMonthly.map(([key, pair]) => (
-        <div className="ie-col" key={key}>
-          <div className="ie-bar-pair">
-            <div className="ie-bar income" style={{ height: `${Math.max(6, (pair.income / Math.max(...incomeExpenseMonthly.map(([,p]) => p.income), 1)) * 100)}%` }} />
-            <div className="ie-bar expense" style={{ height: `${Math.max(6, (pair.expense / Math.max(...incomeExpenseMonthly.map(([,p]) => p.expense), 1)) * 100)}%` }} />
+    return (
+      <div className="monthly-bars">
+        {monthLabels.map((month, monthIndex) => (
+          <div className="month-col" key={month}>
+            <div className="month-bar-group">
+              {monthlyTotals.map((entry, seriesIndex) => {
+                const value = entry.months[monthIndex];
+                const height = Math.max(0, (value / maxValue) * 100);
+                return (
+                  <div
+                    key={`${entry.year}-${month}`}
+                    className="month-bar"
+                    title={`${entry.year} ${month}: ${formatMoney(value)}`}
+                    style={{
+                      height: `${Math.max(4, height)}%`,
+                      background: yearColors[seriesIndex % yearColors.length],
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <div className="month-lbl">{month}</div>
           </div>
-          <div className="ie-lbl">{key.slice(5)}</div>
-        </div>
-      ))}
-    </div>
-  );
+        ))}
+      </div>
+    );
+  };
+
+  const renderIncomeExpense = () => {
+    const maxIncome = Math.max(...incomeExpenseMonthly.flatMap((entry) => entry.income), 1);
+    const maxExpense = Math.max(...incomeExpenseMonthly.flatMap((entry) => entry.expense), 1);
+
+    return (
+      <div className="ie-bars">
+        {monthLabels.map((month, monthIndex) => {
+          const incomeValue = incomeExpenseMonthly.reduce((sum, entry) => sum + entry.income[monthIndex], 0);
+          const expenseValue = incomeExpenseMonthly.reduce((sum, entry) => sum + entry.expense[monthIndex], 0);
+          const incomeHeight = Math.max(0, (incomeValue / maxIncome) * 100);
+          const expenseHeight = Math.max(0, (expenseValue / maxExpense) * 100);
+
+          return (
+            <div className="ie-col" key={month}>
+              <div className="ie-bar-stack">
+                <div
+                  className="ie-bar income"
+                  title={`${month} Income: ${formatMoney(incomeValue)}`}
+                  style={{ height: `${Math.max(4, incomeHeight)}%` }}
+                />
+                <div
+                  className="ie-bar expense"
+                  title={`${month} Expense: ${formatMoney(expenseValue)}`}
+                  style={{ height: `${Math.max(4, expenseHeight)}%` }}
+                />
+              </div>
+              <div className="ie-lbl">{month}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const totalRows = filteredTx.length;
 
@@ -779,6 +913,10 @@ export default function App() {
           <div id="dashboard">
             <div className="top-bar">
               <button className="btn btn-secondary btn-sm" onClick={() => setScreen('upload')}>← Back to Upload</button>
+              <div className="top-bar-actions">
+                <button className="btn btn-secondary btn-sm" onClick={refreshSummary}>Refresh</button>
+                <button className="btn btn-secondary btn-sm" onClick={resetApp}>Clear data</button>
+              </div>
             </div>
 
             <div className="stats-row">
@@ -797,9 +935,9 @@ export default function App() {
                 <div className="value">{formatMoney(stats.net)}</div>
                 <div className="sub">{allTransactions.length > 0 ? `${allTransactions[0].date.getFullYear()}-${String(allTransactions[0].date.getMonth() + 1).padStart(2, '0')}` : '–'}</div>
               </div>
-              <div className="stat-card" style={{ borderLeft: '3px solid var(--accent)' }}>
+              <div className="stat-card largest-expense-card" style={{ borderLeft: '3px solid var(--accent)' }}>
                 <div className="label">Largest Expense</div>
-                <div className="value" style={{ fontSize: 20 }}>
+                <div className="value largest-expense-value">
                   {stats.topExpense ? stats.topExpense.description : '–'}
                 </div>
                 <div className="sub">{stats.topExpense ? formatMoney(Math.abs(stats.topExpense.amount)) : '–'}</div>
